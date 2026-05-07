@@ -1,5 +1,6 @@
 name: App / Publish
-
+permissions:
+  contents: write
 on:
   push:
     tags:
@@ -9,7 +10,6 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-24.04
-    if: ${{ contains(github.repository_owner, 'jellyfin') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -71,32 +71,6 @@ jobs:
       - name: Upload release archive to GitHub release
         uses: alexellis/upload-assets@13926a61cdb2cb35f5fdef1c06b8b591523236d3 # 0.4.1
         env:
-          GITHUB_TOKEN: ${{ secrets.JF_BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           asset_paths: '["build/jellyfin-publish/*"]'
-      - name: Upload release archive to repo.jellyfin.org
-        uses: burnett01/rsync-deployments@dc0d5d44c4728aad3f02154a87309809e62a960f # 8.0.4
-        with:
-          switches: -vrptz
-          path: build/jellyfin-publish/
-          remote_path: /srv/incoming/android/v${{ env.JELLYFIN_VERSION }}/
-          remote_host: ${{ secrets.REPO_HOST }}
-          remote_user: ${{ secrets.REPO_USER }}
-          remote_key: ${{ secrets.REPO_KEY }}
-      - name: Update repo.jellyfin.org symlinks
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
-        with:
-          host: ${{ secrets.REPO_HOST }}
-          username: ${{ secrets.REPO_USER }}
-          key: ${{ secrets.REPO_KEY }}
-          envs: JELLYFIN_VERSION
-          script_stop: true
-          script: |
-            if [ -d "/srv/repository/main/client/android/versions/v${{ env.JELLYFIN_VERSION }}" ] && [ -n "${{ env.JELLYFIN_VERSION }}" ]; then
-                sudo rm -r /srv/repository/main/client/android/versions/v${{ env.JELLYFIN_VERSION }}
-            fi
-            sudo mv /srv/incoming/android/v${{ env.JELLYFIN_VERSION }} /srv/repository/main/client/android/versions/v${{ env.JELLYFIN_VERSION }}
-            cd /srv/repository/main/client/android;
-            sudo rm -rf *.apk version.txt;
-            sudo ln -s versions/v${JELLYFIN_VERSION}/jellyfin-android-v${JELLYFIN_VERSION}-*.apk .;
-            sudo ln -s versions/v${JELLYFIN_VERSION}/version.txt .;
