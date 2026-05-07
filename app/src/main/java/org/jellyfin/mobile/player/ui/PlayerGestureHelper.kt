@@ -50,6 +50,7 @@ class PlayerGestureHelper(
     private var defaultOverlayGravity = 0
     private var defaultOverlayPadding = 0
     private var defaultImageSize = 0
+    private var defaultOverlayWidth = 0
 
     init {
         if (appPreferences.exoPlayerRememberBrightness) {
@@ -58,6 +59,7 @@ class PlayerGestureHelper(
         defaultOverlayGravity = (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity ?: Gravity.CENTER
         defaultOverlayPadding = gestureIndicatorOverlayLayout.paddingLeft
         defaultImageSize = gestureIndicatorOverlayImage.layoutParams.width
+        defaultOverlayWidth = gestureIndicatorOverlayLayout.layoutParams.width
     }
 
     /**
@@ -76,6 +78,7 @@ class PlayerGestureHelper(
     private var seekInitialPosition = 0L
     private var accumulatedDistanceX = 0f
     private var accumulatedDistanceY = 0f
+    private var gestureDirectionLocked = 0
 
     /**
      * Runnable that hides [playerView] controller
@@ -178,7 +181,18 @@ class PlayerGestureHelper(
                 val absTotalX = abs(accumulatedDistanceX)
                 val absTotalY = abs(accumulatedDistanceY)
 
-                if (absTotalX > absTotalY) {
+                if (gestureDirectionLocked == 0) {
+                    // Lock direction once enough movement has accumulated
+                    if (absTotalX > absTotalY) {
+                        gestureDirectionLocked = 1
+                    } else if (absTotalY >= absTotalX * 2) {
+                        gestureDirectionLocked = 2
+                    } else {
+                        return false
+                    }
+                }
+
+                if (gestureDirectionLocked == 1) {
                     // Horizontal swipe — seek
                     // Initialize starting position on first horizontal frame
                     if (seekGestureValueTracker == 0L) {
@@ -221,7 +235,7 @@ class PlayerGestureHelper(
                     gestureIndicatorOverlayText.isVisible = true
                     gestureIndicatorOverlayTime.text = "${formatTime(targetPosition)} / ${formatTime(duration)}"
                     gestureIndicatorOverlayTime.isVisible = true
-                } else if (absTotalY >= absTotalX * 2) {
+                } else {
                     // Vertical swipe — brightness/volume
                     val viewCenterX = playerView.measuredWidth / 2
 
@@ -281,8 +295,6 @@ class PlayerGestureHelper(
                         gestureIndicatorOverlayProgress.max = Constants.PERCENT_MAX
                         gestureIndicatorOverlayProgress.progress = (swipeGestureValueTracker * Constants.PERCENT_MAX).toInt()
                     }
-                } else {
-                    return false
                 }
 
                 resetOverlayStyle()
@@ -345,7 +357,6 @@ class PlayerGestureHelper(
                     isOnPressingSpeedUp = false
                     lastSpeedTierIndex = speedTierIndex
                     fragment.onSpeedSelected(1f)
-                    resetOverlayStyle()
                 }
                 // Hide gesture indicator after timeout, if shown
                 gestureIndicatorOverlayLayout.apply {
@@ -362,6 +373,7 @@ class PlayerGestureHelper(
                 seekInitialPosition = 0L
                 accumulatedDistanceX = 0f
                 accumulatedDistanceY = 0f
+                gestureDirectionLocked = 0
                 speedModeDistanceX = 0f
             }
             true
@@ -378,26 +390,28 @@ class PlayerGestureHelper(
 
     private fun applySpeedOverlayStyle() {
         (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        gestureIndicatorOverlayLayout.layoutParams.width = LinearLayout.LayoutParams.WRAP_CONTENT
         gestureIndicatorOverlayLayout.setPadding(
             defaultOverlayPadding,
-            gestureIndicatorOverlayLayout.resources.dip(48),
+            gestureIndicatorOverlayLayout.resources.dip(8),
             defaultOverlayPadding,
-            defaultOverlayPadding / 2,
+            gestureIndicatorOverlayLayout.resources.dip(4),
         )
-        val smallSize = defaultImageSize * 2 / 3
-        gestureIndicatorOverlayImage.layoutParams.width = smallSize
-        gestureIndicatorOverlayImage.layoutParams.height = smallSize
-        gestureIndicatorOverlayText.textSize = 12f
+        gestureIndicatorOverlayImage.visibility = android.view.View.GONE
+        gestureIndicatorOverlayProgress.visibility = android.view.View.GONE
+        gestureIndicatorOverlayText.textSize = 14f
     }
 
     private fun resetOverlayStyle() {
         (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity = defaultOverlayGravity
+        gestureIndicatorOverlayLayout.layoutParams.width = defaultOverlayWidth
         gestureIndicatorOverlayLayout.setPadding(
             defaultOverlayPadding,
             defaultOverlayPadding,
             defaultOverlayPadding,
             defaultOverlayPadding,
         )
+        gestureIndicatorOverlayImage.visibility = android.view.View.VISIBLE
         gestureIndicatorOverlayImage.layoutParams.width = defaultImageSize
         gestureIndicatorOverlayImage.layoutParams.height = defaultImageSize
         gestureIndicatorOverlayText.textSize = 14f
