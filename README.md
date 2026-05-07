@@ -43,6 +43,10 @@
 <a href="https://repo.jellyfin.org/releases/client/android/">Download archive</a>
 </p>
 
+基于官方jellyfin，使用claude code二改，移除了双击快进快退的功能，改为双击播放/暂停
+
+增加左右拖拽调节进度功能，增加长按倍速功能，长按后左右滑动调节倍速，松手固定倍速
+
 Jellyfin Mobile is an Android app that connects to Jellyfin instances and integrates with the [official web client](https://github.com/jellyfin/jellyfin-web).
 We welcome all contributions and pull requests! If you have a larger feature in mind please open an issue so we can discuss the implementation before you start.
 Even though the client is only a web wrapper there are still lots of improvements and bug fixes that can be accomplished with Android and Kotlin knowledge.
