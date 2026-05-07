@@ -14,6 +14,7 @@ import android.widget.ProgressBar
 import androidx.core.content.getSystemService
 import androidx.core.view.isVisible
 import androidx.core.view.postDelayed
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import org.jellyfin.mobile.R
@@ -37,7 +38,12 @@ class PlayerGestureHelper(
     private val gestureIndicatorOverlayLayout: LinearLayout by playerBinding::gestureOverlayLayout
     private val gestureIndicatorOverlayImage: ImageView by playerBinding::gestureOverlayImage
     private val gestureIndicatorOverlayProgress: ProgressBar by playerBinding::gestureOverlayProgress
+    private val gestureIndicatorOverlayText: AppCompatTextView by playerBinding::gestureOverlayText
+    private val gestureIndicatorOverlayTime: AppCompatTextView by playerBinding::gestureOverlayTime
     private var isOnPressingSpeedUp = false
+    private var speedTierIndex = 4
+    private var speedModeDistanceX = 0f
+    private var speedModePreviousX = 0f
 
     init {
         if (appPreferences.exoPlayerRememberBrightness) {
@@ -57,6 +63,10 @@ class PlayerGestureHelper(
      * (depending on the direction) as the gesture progresses.
      */
     private var swipeGestureValueTracker = -1f
+    private var seekGestureValueTracker = 0L
+    private var seekInitialPosition = 0L
+    private var accumulatedDistanceX = 0f
+    private var accumulatedDistanceY = 0f
 
     /**
      * Runnable that hides [playerView] controller
@@ -92,17 +102,14 @@ class PlayerGestureHelper(
         playerView.context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                // Toggle play/pause
+                fragment.onPlayPause()
+
+                // Show ripple effect centered
                 val viewWidth = playerView.measuredWidth
                 val viewHeight = playerView.measuredHeight
-                val viewCenterX = viewWidth / 2
-                val viewCenterY = viewHeight / 2
-                val isFastForward = e.x.toInt() > viewCenterX
-
-                // Show ripple effect
                 playerView.foreground?.apply {
-                    val left = if (isFastForward) viewCenterX else 0
-                    val right = if (isFastForward) viewWidth else viewCenterX
-                    setBounds(left, viewCenterY - viewCenterX / 2, right, viewCenterY + viewCenterX / 2)
+                    setBounds(0, 0, viewWidth, viewHeight)
                     setHotspot(e.x, e.y)
                     state = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_pressed)
                     playerView.postDelayed(Constants.DOUBLE_TAP_RIPPLE_DURATION_MS) {
@@ -110,13 +117,8 @@ class PlayerGestureHelper(
                     }
                 }
 
-                // Fast-forward/rewind
-                with(fragment) { if (isFastForward) onFastForward() else onRewind() }
-
-                // Cancel previous runnable to not hide controller while seeking
+                // Show controller briefly
                 playerView.removeCallbacks(hidePlayerViewControllerAction)
-
-                // Ensure controller gets hidden after seeking
                 playerView.postDelayed(hidePlayerViewControllerAction, Constants.DEFAULT_CONTROLS_TIMEOUT_MS.toLong())
                 return true
             }
@@ -133,10 +135,12 @@ class PlayerGestureHelper(
                     return
                 }
 
-                with(fragment) {
-                    isOnPressingSpeedUp = true
-                    onPressSpeedUp(true)
-                }
+                isOnPressingSpeedUp = true
+                speedTierIndex = 4 // Start at 2x
+                speedModeDistanceX = 0f
+                speedModePreviousX = e.x
+                fragment.onSpeedSelected(SPEED_TIERS[speedTierIndex])
+                showSpeedOverlay()
             }
 
             override fun onScroll(
@@ -159,62 +163,117 @@ class PlayerGestureHelper(
                     return false
                 }
 
-                // Check whether swipe was oriented vertically
-                if (abs(distanceY / distanceX) < 2) {
-                    return false
-                }
+                // Accumulate distances for stable orientation detection
+                accumulatedDistanceX += distanceX
+                accumulatedDistanceY += distanceY
+                val absTotalX = abs(accumulatedDistanceX)
+                val absTotalY = abs(accumulatedDistanceY)
 
-                val viewCenterX = playerView.measuredWidth / 2
+                if (absTotalX > absTotalY) {
+                    // Horizontal swipe — seek
+                    // Initialize starting position on first horizontal frame
+                    if (seekGestureValueTracker == 0L) {
+                        seekInitialPosition = fragment.getPlayerPosition()
+                    }
 
-                // Distance to swipe to go from min to max
-                val distanceFull = playerView.measuredHeight * Constants.FULL_SWIPE_RANGE_SCREEN_RATIO
-                val ratioChange = distanceY / distanceFull
+                    // distanceX is incremental per-frame, compute incremental offset
+                    val screenWidth = playerView.measuredWidth
+                    val incrementalOffset = (-distanceX / screenWidth * Constants.HORIZONTAL_SWIPE_SEEK_MAX_MS).toLong()
+                    seekGestureValueTracker += incrementalOffset
+                    seekGestureValueTracker = seekGestureValueTracker.coerceIn(
+                        -Constants.HORIZONTAL_SWIPE_SEEK_MAX_MS,
+                        Constants.HORIZONTAL_SWIPE_SEEK_MAX_MS,
+                    )
 
-                if (firstEvent.x.toInt() > viewCenterX) {
-                    // Swiping on the right, change volume
+                    if (incrementalOffset != 0L) {
+                        fragment.onSeekBy(incrementalOffset)
+                    }
 
-                    val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    if (swipeGestureValueTracker == -1f) swipeGestureValueTracker = currentVolume.toFloat()
+                    // Show seek direction and time using accumulated tracker
+                    val offsetSeconds = (seekGestureValueTracker / 1000).toInt()
+                    val isForward = offsetSeconds >= 0
+                    val targetPosition = seekInitialPosition + seekGestureValueTracker
+                    val duration = fragment.getPlayerDuration()
 
-                    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                    val change = ratioChange * maxVolume
-                    swipeGestureValueTracker += change
+                    gestureIndicatorOverlayImage.setImageResource(
+                        if (isForward) R.drawable.ic_fast_forward_black_32dp
+                        else R.drawable.ic_rewind_black_32dp
+                    )
+                    gestureIndicatorOverlayProgress.isVisible = true
+                    if (duration > 0) {
+                        val progressPercent = (targetPosition * 100 / duration).toInt().coerceIn(0, 100)
+                        gestureIndicatorOverlayProgress.max = 100
+                        gestureIndicatorOverlayProgress.progress = progressPercent
+                    } else {
+                        gestureIndicatorOverlayProgress.max = 100
+                        gestureIndicatorOverlayProgress.progress = 0
+                    }
+                    gestureIndicatorOverlayText.text = if (isForward) "+${offsetSeconds}s" else "${offsetSeconds}s"
+                    gestureIndicatorOverlayText.isVisible = true
+                    gestureIndicatorOverlayTime.text = "${formatTime(targetPosition)} / ${formatTime(duration)}"
+                    gestureIndicatorOverlayTime.isVisible = true
+                } else if (absTotalY >= absTotalX * 2) {
+                    // Vertical swipe — brightness/volume
+                    val viewCenterX = playerView.measuredWidth / 2
 
-                    val toSet = swipeGestureValueTracker.toInt().coerceIn(0, maxVolume)
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, toSet, 0)
+                    // Distance to swipe to go from min to max
+                    val distanceFull = playerView.measuredHeight * Constants.FULL_SWIPE_RANGE_SCREEN_RATIO
+                    // distanceY is incremental per-frame, ratioChange is incremental
+                    val ratioChange = distanceY / distanceFull
 
-                    gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_volume_white_24dp)
-                    gestureIndicatorOverlayProgress.max = maxVolume
-                    gestureIndicatorOverlayProgress.progress = toSet
-                } else {
-                    // Swiping on the left, change brightness
+                    // Hide text views used for horizontal seek
+                    gestureIndicatorOverlayText.isVisible = false
+                    gestureIndicatorOverlayTime.isVisible = false
+                    gestureIndicatorOverlayProgress.isVisible = true
 
-                    val window = fragment.requireActivity().window
-                    val brightnessRange = BRIGHTNESS_OVERRIDE_OFF..BRIGHTNESS_OVERRIDE_FULL
+                    if (firstEvent.x.toInt() > viewCenterX) {
+                        // Swiping on the right, change volume
 
-                    // Initialize on first swipe
-                    if (swipeGestureValueTracker == -1f) {
-                        val brightness = window.brightness
-                        swipeGestureValueTracker = when (brightness) {
-                            in brightnessRange -> brightness
-                            else -> {
-                                Settings.System.getFloat(
-                                    fragment.requireActivity().contentResolver,
-                                    Settings.System.SCREEN_BRIGHTNESS,
-                                ) / Constants.SCREEN_BRIGHTNESS_MAX
+                        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        if (swipeGestureValueTracker == -1f) swipeGestureValueTracker = currentVolume.toFloat()
+
+                        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        val change = ratioChange * maxVolume
+                        swipeGestureValueTracker += change
+
+                        val toSet = swipeGestureValueTracker.toInt().coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, toSet, 0)
+
+                        gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_volume_white_24dp)
+                        gestureIndicatorOverlayProgress.max = maxVolume
+                        gestureIndicatorOverlayProgress.progress = toSet
+                    } else {
+                        // Swiping on the left, change brightness
+
+                        val window = fragment.requireActivity().window
+                        val brightnessRange = BRIGHTNESS_OVERRIDE_OFF..BRIGHTNESS_OVERRIDE_FULL
+
+                        // Initialize on first swipe
+                        if (swipeGestureValueTracker == -1f) {
+                            val brightness = window.brightness
+                            swipeGestureValueTracker = when (brightness) {
+                                in brightnessRange -> brightness
+                                else -> {
+                                    Settings.System.getFloat(
+                                        fragment.requireActivity().contentResolver,
+                                        Settings.System.SCREEN_BRIGHTNESS,
+                                    ) / Constants.SCREEN_BRIGHTNESS_MAX
+                                }
                             }
                         }
-                    }
 
-                    swipeGestureValueTracker = (swipeGestureValueTracker + ratioChange).coerceIn(brightnessRange)
-                    window.brightness = swipeGestureValueTracker
-                    if (appPreferences.exoPlayerRememberBrightness) {
-                        appPreferences.exoPlayerBrightness = swipeGestureValueTracker
-                    }
+                        swipeGestureValueTracker = (swipeGestureValueTracker + ratioChange).coerceIn(brightnessRange)
+                        window.brightness = swipeGestureValueTracker
+                        if (appPreferences.exoPlayerRememberBrightness) {
+                            appPreferences.exoPlayerBrightness = swipeGestureValueTracker
+                        }
 
-                    gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_brightness_white_24dp)
-                    gestureIndicatorOverlayProgress.max = Constants.PERCENT_MAX
-                    gestureIndicatorOverlayProgress.progress = (swipeGestureValueTracker * Constants.PERCENT_MAX).toInt()
+                        gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_brightness_white_24dp)
+                        gestureIndicatorOverlayProgress.max = Constants.PERCENT_MAX
+                        gestureIndicatorOverlayProgress.progress = (swipeGestureValueTracker * Constants.PERCENT_MAX).toInt()
+                    }
+                } else {
+                    return false
                 }
 
                 gestureIndicatorOverlayLayout.isVisible = true
@@ -249,7 +308,23 @@ class PlayerGestureHelper(
         playerView.setOnTouchListener { _, event ->
             if (playerView.useController) {
                 when (event.pointerCount) {
-                    1 -> gestureDetector.onTouchEvent(event)
+                    1 -> {
+                        // Handle speed mode directly: GestureDetector may not
+                        // deliver reliable onScroll events after onLongPress
+                        if (isOnPressingSpeedUp && event.action == MotionEvent.ACTION_MOVE) {
+                            val deltaX = event.x - speedModePreviousX
+                            speedModeDistanceX += deltaX
+                            speedModePreviousX = event.x
+                            val tierStep = (speedModeDistanceX / SPEED_TIER_PIXEL_STEP).toInt()
+                            val newIndex = (4 + tierStep).coerceIn(0, SPEED_TIERS.size - 1)
+                            if (newIndex != speedTierIndex) {
+                                speedTierIndex = newIndex
+                                fragment.onSpeedSelected(SPEED_TIERS[speedTierIndex])
+                            }
+                            showSpeedOverlay()
+                        }
+                        gestureDetector.onTouchEvent(event)
+                    }
                     2 -> zoomGestureDetector.onTouchEvent(event)
                 }
             } else {
@@ -258,9 +333,7 @@ class PlayerGestureHelper(
             if (event.action == MotionEvent.ACTION_UP) {
                 if (isOnPressingSpeedUp) {
                     isOnPressingSpeedUp = false
-                    with(fragment) {
-                        onPressSpeedUp(false)
-                    }
+                    // Speed stays at current tier — no restore
                 }
                 // Hide gesture indicator after timeout, if shown
                 gestureIndicatorOverlayLayout.apply {
@@ -273,6 +346,11 @@ class PlayerGestureHelper(
                     }
                 }
                 swipeGestureValueTracker = -1f
+                seekGestureValueTracker = 0L
+                seekInitialPosition = 0L
+                accumulatedDistanceX = 0f
+                accumulatedDistanceY = 0f
+                speedModeDistanceX = 0f
             }
             true
         }
@@ -284,5 +362,28 @@ class PlayerGestureHelper(
 
     private fun updateZoomMode(enabled: Boolean) {
         playerView.resizeMode = if (enabled) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+    }
+
+    private fun showSpeedOverlay() {
+        val speed = SPEED_TIERS[speedTierIndex]
+        gestureIndicatorOverlayProgress.isVisible = false
+        gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_slow_motion_video_white_24dp)
+        gestureIndicatorOverlayText.text = "${speed}x"
+        gestureIndicatorOverlayText.isVisible = true
+        gestureIndicatorOverlayTime.isVisible = false
+        gestureIndicatorOverlayLayout.isVisible = true
+    }
+
+    private fun formatTime(ms: Long): String {
+        if (ms <= 0) return "0:00"
+        val totalSeconds = ms / 1000
+        val minutes = totalSeconds / 60
+        val seconds = totalSeconds % 60
+        return "${minutes}:${seconds.toString().padStart(2, '0')}"
+    }
+
+    companion object {
+        private val SPEED_TIERS = floatArrayOf(0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f)
+        private const val SPEED_TIER_PIXEL_STEP = 60f
     }
 }

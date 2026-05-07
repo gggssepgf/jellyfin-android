@@ -46,6 +46,7 @@ import org.jellyfin.mobile.utils.Constants.PIP_MAX_RATIONAL
 import org.jellyfin.mobile.utils.Constants.PIP_MIN_RATIONAL
 import org.jellyfin.mobile.utils.SmartOrientationListener
 import org.jellyfin.mobile.utils.brightness
+import org.jellyfin.mobile.utils.seekToOffset
 import org.jellyfin.mobile.utils.extensions.aspectRational
 import org.jellyfin.mobile.utils.extensions.getParcelableCompat
 import org.jellyfin.mobile.utils.extensions.isLandscape
@@ -287,6 +288,19 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
     fun onRewind() = viewModel.rewind()
 
     fun onFastForward() = viewModel.fastForward()
+
+    fun onSeekBy(offsetMs: Long) {
+        viewModel.playerOrNull?.seekToOffset(offsetMs)
+    }
+
+    fun getPlayerPosition(): Long = viewModel.playerOrNull?.currentPosition ?: 0L
+
+    fun getPlayerDuration(): Long = viewModel.playerOrNull?.duration ?: 0L
+
+    fun onPlayPause() {
+        val player = viewModel.playerOrNull ?: return
+        if (player.isPlaying) viewModel.pause() else viewModel.play()
+    }
 
     fun onPreviousChapter() = viewModel.previousChapter()
 
