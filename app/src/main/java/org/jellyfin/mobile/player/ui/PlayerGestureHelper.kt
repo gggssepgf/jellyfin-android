@@ -4,8 +4,10 @@ import android.content.res.Configuration
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.GestureDetector
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.widget.FrameLayout
 import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
 import android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_OFF
 import android.widget.ImageView
@@ -45,11 +47,17 @@ class PlayerGestureHelper(
     private var lastSpeedTierIndex = 4
     private var speedModeDistanceX = 0f
     private var speedModePreviousX = 0f
+    private var defaultOverlayGravity = 0
+    private var defaultOverlayPadding = 0
+    private var defaultImageSize = 0
 
     init {
         if (appPreferences.exoPlayerRememberBrightness) {
             fragment.requireActivity().window.brightness = appPreferences.exoPlayerBrightness
         }
+        defaultOverlayGravity = (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity ?: Gravity.CENTER
+        defaultOverlayPadding = gestureIndicatorOverlayLayout.paddingLeft
+        defaultImageSize = gestureIndicatorOverlayImage.layoutParams.width
     }
 
     /**
@@ -277,6 +285,7 @@ class PlayerGestureHelper(
                     return false
                 }
 
+                resetOverlayStyle()
                 gestureIndicatorOverlayLayout.isVisible = true
                 return true
             }
@@ -336,6 +345,7 @@ class PlayerGestureHelper(
                     isOnPressingSpeedUp = false
                     lastSpeedTierIndex = speedTierIndex
                     fragment.onSpeedSelected(1f)
+                    resetOverlayStyle()
                 }
                 // Hide gesture indicator after timeout, if shown
                 gestureIndicatorOverlayLayout.apply {
@@ -366,8 +376,36 @@ class PlayerGestureHelper(
         playerView.resizeMode = if (enabled) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 
+    private fun applySpeedOverlayStyle() {
+        (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        gestureIndicatorOverlayLayout.setPadding(
+            defaultOverlayPadding,
+            gestureIndicatorOverlayLayout.resources.dip(48),
+            defaultOverlayPadding,
+            defaultOverlayPadding / 2,
+        )
+        val smallSize = defaultImageSize * 2 / 3
+        gestureIndicatorOverlayImage.layoutParams.width = smallSize
+        gestureIndicatorOverlayImage.layoutParams.height = smallSize
+        gestureIndicatorOverlayText.textSize = 12f
+    }
+
+    private fun resetOverlayStyle() {
+        (gestureIndicatorOverlayLayout.layoutParams as? FrameLayout.LayoutParams)?.gravity = defaultOverlayGravity
+        gestureIndicatorOverlayLayout.setPadding(
+            defaultOverlayPadding,
+            defaultOverlayPadding,
+            defaultOverlayPadding,
+            defaultOverlayPadding,
+        )
+        gestureIndicatorOverlayImage.layoutParams.width = defaultImageSize
+        gestureIndicatorOverlayImage.layoutParams.height = defaultImageSize
+        gestureIndicatorOverlayText.textSize = 14f
+    }
+
     private fun showSpeedOverlay() {
         val speed = SPEED_TIERS[speedTierIndex]
+        applySpeedOverlayStyle()
         gestureIndicatorOverlayProgress.isVisible = false
         gestureIndicatorOverlayImage.setImageResource(R.drawable.ic_slow_motion_video_white_24dp)
         gestureIndicatorOverlayText.text = "${speed}x"
