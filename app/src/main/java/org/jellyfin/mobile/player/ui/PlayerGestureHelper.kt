@@ -42,6 +42,7 @@ class PlayerGestureHelper(
     private val gestureIndicatorOverlayTime: AppCompatTextView by playerBinding::gestureOverlayTime
     private var isOnPressingSpeedUp = false
     private var speedTierIndex = 4
+    private var lastSpeedTierIndex = 4
     private var speedModeDistanceX = 0f
     private var speedModePreviousX = 0f
 
@@ -136,7 +137,7 @@ class PlayerGestureHelper(
                 }
 
                 isOnPressingSpeedUp = true
-                speedTierIndex = 4 // Start at 2x
+                speedTierIndex = lastSpeedTierIndex
                 speedModeDistanceX = 0f
                 speedModePreviousX = e.x
                 fragment.onSpeedSelected(SPEED_TIERS[speedTierIndex])
@@ -333,7 +334,8 @@ class PlayerGestureHelper(
             if (event.action == MotionEvent.ACTION_UP) {
                 if (isOnPressingSpeedUp) {
                     isOnPressingSpeedUp = false
-                    // Speed stays at current tier — no restore
+                    lastSpeedTierIndex = speedTierIndex
+                    fragment.onSpeedSelected(1f)
                 }
                 // Hide gesture indicator after timeout, if shown
                 gestureIndicatorOverlayLayout.apply {

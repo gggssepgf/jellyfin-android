@@ -23,7 +23,9 @@ jobs:
       - name: Set JELLYFIN_VERSION
         run: echo "JELLYFIN_VERSION=$(echo ${GITHUB_REF#refs/tags/v} | tr / -)" >> $GITHUB_ENV
       - name: Assemble release files
-        run: ./gradlew assemble bundleProprietaryRelease versionTxt
+        env:
+          GRADLE_OPTS: -Xmx4G -XX:MaxMetaspaceSize=512m
+        run: ./gradlew assembleRelease bundleProprietaryRelease versionTxt
       - name: Sign libre APK
         id: libreSign
         uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # tag=v1
@@ -60,17 +62,16 @@ jobs:
       - name: Prepare release archive
         run: |
           mkdir -p build/jellyfin-publish
-          mv app/build/outputs/apk/*/*/jellyfin-android-*-libre-debug.apk build/jellyfin-publish/
-          mv app/build/outputs/apk/*/*/jellyfin-android-*-proprietary-debug.apk build/jellyfin-publish/
           mv app/build/outputs/apk/*/*/jellyfin-android-*-libre-release-unsigned.apk build/jellyfin-publish/
           mv app/build/outputs/apk/*/*/jellyfin-android-*-proprietary-release-unsigned.apk build/jellyfin-publish/
           mv ${{ steps.libreSign.outputs.signedReleaseFile }} build/jellyfin-publish/jellyfin-android-v${{ env.JELLYFIN_VERSION }}-libre-release.apk
           mv ${{ steps.proprietarySign.outputs.signedReleaseFile }} build/jellyfin-publish/jellyfin-android-v${{ env.JELLYFIN_VERSION }}-proprietary-release.apk
           mv ${{ steps.proprietaryBundleSign.outputs.signedReleaseFile }} build/jellyfin-publish/jellyfin-android-v${{ env.JELLYFIN_VERSION }}-proprietary-release.aab
           mv app/build/version.txt build/jellyfin-publish/
-      - name: Upload release archive to GitHub release
-        uses: alexellis/upload-assets@13926a61cdb2cb35f5fdef1c06b8b591523236d3 # 0.4.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
         with:
-          asset_paths: '["build/jellyfin-publish/*"]'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: build/jellyfin-publish/*
+          body: |
+            Release v${{ env.JELLYFIN_VERSION }}
