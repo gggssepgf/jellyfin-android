@@ -293,6 +293,10 @@ class PlayerFragment : Fragment(), BackPressInterceptor {
         viewModel.playerOrNull?.seekToOffset(offsetMs)
     }
 
+    fun onSeekTo(positionMs: Long) {
+        viewModel.playerOrNull?.seekTo(positionMs)
+    }
+
     fun getPlayerPosition(): Long = viewModel.playerOrNull?.currentPosition ?: 0L
 
     fun getPlayerDuration(): Long = viewModel.playerOrNull?.duration ?: 0L

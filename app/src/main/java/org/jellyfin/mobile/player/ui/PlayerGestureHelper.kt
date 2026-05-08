@@ -193,13 +193,12 @@ class PlayerGestureHelper(
                 }
 
                 if (gestureDirectionLocked == 1) {
-                    // Horizontal swipe — seek
-                    // Initialize starting position on first horizontal frame
+                    // Horizontal swipe — seek (overlay only during drag)
                     if (seekGestureValueTracker == 0L) {
                         seekInitialPosition = fragment.getPlayerPosition()
                     }
 
-                    // distanceX is incremental per-frame, compute incremental offset
+                    // distanceX is incremental per-frame, accumulate total offset
                     val screenWidth = playerView.measuredWidth
                     val incrementalOffset = (-distanceX / screenWidth * Constants.HORIZONTAL_SWIPE_SEEK_MAX_MS).toLong()
                     seekGestureValueTracker += incrementalOffset
@@ -208,14 +207,10 @@ class PlayerGestureHelper(
                         Constants.HORIZONTAL_SWIPE_SEEK_MAX_MS,
                     )
 
-                    if (incrementalOffset != 0L) {
-                        fragment.onSeekBy(incrementalOffset)
-                    }
-
-                    // Show seek direction and time using accumulated tracker
+                    // Don't seek during drag — only show overlay; final seek on release
+                    val targetPosition = (seekInitialPosition + seekGestureValueTracker).coerceAtLeast(0)
                     val offsetSeconds = (seekGestureValueTracker / 1000).toInt()
                     val isForward = offsetSeconds >= 0
-                    val targetPosition = seekInitialPosition + seekGestureValueTracker
                     val duration = fragment.getPlayerDuration()
 
                     gestureIndicatorOverlayImage.setImageResource(
@@ -368,6 +363,12 @@ class PlayerGestureHelper(
                         )
                     }
                 }
+                // Final exact seek after horizontal drag
+                if (gestureDirectionLocked == 1) {
+                    val targetPosition = (seekInitialPosition + seekGestureValueTracker).coerceAtLeast(0)
+                    fragment.onSeekTo(targetPosition)
+                }
+
                 swipeGestureValueTracker = -1f
                 seekGestureValueTracker = 0L
                 seekInitialPosition = 0L
@@ -393,9 +394,9 @@ class PlayerGestureHelper(
         gestureIndicatorOverlayLayout.layoutParams.width = LinearLayout.LayoutParams.WRAP_CONTENT
         gestureIndicatorOverlayLayout.setPadding(
             defaultOverlayPadding,
-            gestureIndicatorOverlayLayout.resources.dip(8),
+            gestureIndicatorOverlayLayout.resources.dip(0),
             defaultOverlayPadding,
-            gestureIndicatorOverlayLayout.resources.dip(4),
+            gestureIndicatorOverlayLayout.resources.dip(2),
         )
         gestureIndicatorOverlayImage.visibility = android.view.View.GONE
         gestureIndicatorOverlayProgress.visibility = android.view.View.GONE
