@@ -333,7 +333,7 @@ class PlayerGestureHelper(
                             speedModeDistanceX += deltaX
                             speedModePreviousX = event.x
                             val tierStep = (speedModeDistanceX / SPEED_TIER_PIXEL_STEP).toInt()
-                            val newIndex = (4 + tierStep).coerceIn(0, SPEED_TIERS.size - 1)
+                            val newIndex = (lastSpeedTierIndex + tierStep).coerceIn(0, SPEED_TIERS.size - 1)
                             if (newIndex != speedTierIndex) {
                                 speedTierIndex = newIndex
                                 fragment.onSpeedSelected(SPEED_TIERS[speedTierIndex])
